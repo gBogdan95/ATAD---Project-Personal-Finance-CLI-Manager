@@ -39,6 +39,12 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "list":
+		if err := cmdList(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			os.Exit(1)
+		}
+
 	default:
 		fmt.Printf("Unknown command: %s\n\n", os.Args[1])
 		printHelp()
@@ -54,6 +60,7 @@ func printHelp() {
 	fmt.Println("  pfm hello")
 	fmt.Println("  pfm init")
 	fmt.Println("  pfm add --type expense --amount 12.34 --category Food [--date YYYY-MM-DD] [--note \"...\"]")
+	fmt.Println("  pfm list [--limit 20]")
 }
 
 func cmdInit() error {
@@ -179,4 +186,69 @@ func parseAmountToCents(s string) (int64, error) {
 	}
 
 	return whole*100 + frac, nil
+}
+
+func cmdList(args []string) error {
+	fs := flag.NewFlagSet("list", flag.ContinueOnError)
+	fs.SetOutput(os.Stdout)
+
+	limit := fs.Int("limit", 20, "number of transactions to show")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	_, err := db.EnsureDir()
+	if err != nil {
+		return err
+	}
+	path, err := db.DBPath()
+	if err != nil {
+		return err
+	}
+
+	conn, err := db.Open(path)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	if err := db.InitSchema(conn); err != nil {
+		return err
+	}
+
+	items, err := db.ListTransactions(conn, *limit)
+	if err != nil {
+		return err
+	}
+
+	if len(items) == 0 {
+		fmt.Println("No transactions found.")
+		return nil
+	}
+
+	fmt.Printf("Showing last %d transactions:\n", len(items))
+	for _, t := range items {
+		fmt.Printf("#%d  %s  %-7s  %s  %s",
+			t.ID,
+			t.Date,
+			t.Type,
+			formatCents(t.AmountCents),
+			t.Category,
+		)
+		if strings.TrimSpace(t.Note) != "" {
+			fmt.Printf("  (%s)", t.Note)
+		}
+		fmt.Println()
+	}
+
+	return nil
+}
+
+func formatCents(cents int64) string {
+	sign := ""
+	if cents < 0 {
+		sign = "-"
+		cents = -cents
+	}
+	return fmt.Sprintf("%s%d.%02d", sign, cents/100, cents%100)
 }
