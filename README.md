@@ -19,30 +19,44 @@ It implements the “Personal Finance CLI Manager” project: CLI subcommands, l
 ## Run
 
 ### Quick start
+```bash
 go run ./cmd/pfm hello  
 go run ./cmd/pfm version  
 go run ./cmd/pfm init  
+```
 
 ## Add transactions
-# Expense  
+# Expense
+```bash
 go run ./cmd/pfm add --type expense --amount 12.34 --category Food --note "coffee"  
+```
 
 # Income  
+```bash
 go run ./cmd/pfm add --type income --amount 1000 --category Salary --note "test salary"  
+```
 
 ## List transactions
+```bash
 go run ./cmd/pfm list  
 go run ./cmd/pfm list --limit 5  
+```
 
 ## Monthly report
+```bash
 go run ./cmd/pfm report --month 2026-01  
+```
 
 ## Budgets
 # Set/update budget for a category in a month  
+```bash
 go run ./cmd/pfm budget set --month 2026-01 --category Food --amount 50  
+```
 
 # Show budget status for the month  
+```bash
 go run ./cmd/pfm budget status --month 2026-01  
+```
 
 ## Architecture
 - `cmd/pfm/` - CLI entrypoint
