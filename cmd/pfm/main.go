@@ -45,6 +45,12 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "report":
+		if err := cmdReport(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			os.Exit(1)
+		}
+
 	default:
 		fmt.Printf("Unknown command: %s\n\n", os.Args[1])
 		printHelp()
@@ -61,6 +67,7 @@ func printHelp() {
 	fmt.Println("  pfm init")
 	fmt.Println("  pfm add --type expense --amount 12.34 --category Food [--date YYYY-MM-DD] [--note \"...\"]")
 	fmt.Println("  pfm list [--limit 20]")
+	fmt.Println("  pfm report --month YYYY-MM")
 }
 
 func cmdInit() error {
@@ -251,4 +258,54 @@ func formatCents(cents int64) string {
 		cents = -cents
 	}
 	return fmt.Sprintf("%s%d.%02d", sign, cents/100, cents%100)
+}
+
+func cmdReport(args []string) error {
+	fs := flag.NewFlagSet("report", flag.ContinueOnError)
+	fs.SetOutput(os.Stdout)
+
+	month := fs.String("month", "", "month in YYYY-MM (required)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	m := strings.TrimSpace(*month)
+	if m == "" {
+		return fmt.Errorf("--month is required (YYYY-MM)")
+	}
+	if _, err := time.Parse("2006-01", m); err != nil {
+		return fmt.Errorf("invalid --month (use YYYY-MM): %w", err)
+	}
+
+	_, err := db.EnsureDir()
+	if err != nil {
+		return err
+	}
+	path, err := db.DBPath()
+	if err != nil {
+		return err
+	}
+
+	conn, err := db.Open(path)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	if err := db.InitSchema(conn); err != nil {
+		return err
+	}
+
+	s, err := db.GetMonthSummary(conn, m)
+	if err != nil {
+		return err
+	}
+
+	net := s.IncomeCents - s.ExpenseCents
+
+	fmt.Printf("Report for %s\n", m)
+	fmt.Printf("  Income : %s\n", formatCents(s.IncomeCents))
+	fmt.Printf("  Expense: %s\n", formatCents(s.ExpenseCents))
+	fmt.Printf("  Net    : %s\n", formatCents(net))
+	return nil
 }
