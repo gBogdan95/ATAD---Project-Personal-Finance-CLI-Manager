@@ -51,6 +51,12 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "budget":
+		if err := cmdBudget(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			os.Exit(1)
+		}
+
 	default:
 		fmt.Printf("Unknown command: %s\n\n", os.Args[1])
 		printHelp()
@@ -68,6 +74,8 @@ func printHelp() {
 	fmt.Println("  pfm add --type expense --amount 12.34 --category Food [--date YYYY-MM-DD] [--note \"...\"]")
 	fmt.Println("  pfm list [--limit 20]")
 	fmt.Println("  pfm report --month YYYY-MM")
+	fmt.Println("  pfm budget set --month YYYY-MM --category Food --amount 200")
+	fmt.Println("  pfm budget status --month YYYY-MM")
 }
 
 func cmdInit() error {
@@ -307,5 +315,146 @@ func cmdReport(args []string) error {
 	fmt.Printf("  Income : %s\n", formatCents(s.IncomeCents))
 	fmt.Printf("  Expense: %s\n", formatCents(s.ExpenseCents))
 	fmt.Printf("  Net    : %s\n", formatCents(net))
+	return nil
+}
+
+func cmdBudget(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("budget requires a subcommand: set or status")
+	}
+
+	switch args[0] {
+	case "set":
+		return cmdBudgetSet(args[1:])
+	case "status":
+		return cmdBudgetStatus(args[1:])
+	default:
+		return fmt.Errorf("unknown budget subcommand: %s (use set or status)", args[0])
+	}
+}
+
+func cmdBudgetSet(args []string) error {
+	fs := flag.NewFlagSet("budget set", flag.ContinueOnError)
+	fs.SetOutput(os.Stdout)
+
+	month := fs.String("month", "", "month in YYYY-MM (required)")
+	category := fs.String("category", "", "category name (required)")
+	amount := fs.String("amount", "", "budget amount like 200 or 200.00 (required)")
+
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	m := strings.TrimSpace(*month)
+	c := strings.TrimSpace(*category)
+	a := strings.TrimSpace(*amount)
+
+	if m == "" || c == "" || a == "" {
+		return fmt.Errorf("--month, --category, and --amount are required")
+	}
+	if _, err := time.Parse("2006-01", m); err != nil {
+		return fmt.Errorf("invalid --month (use YYYY-MM): %w", err)
+	}
+
+	limitCents, err := parseAmountToCents(a)
+	if err != nil {
+		return err
+	}
+
+	_, err = db.EnsureDir()
+	if err != nil {
+		return err
+	}
+	path, err := db.DBPath()
+	if err != nil {
+		return err
+	}
+
+	conn, err := db.Open(path)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	if err := db.InitSchema(conn); err != nil {
+		return err
+	}
+
+	if err := db.UpsertBudget(conn, m, c, limitCents); err != nil {
+		return err
+	}
+
+	fmt.Printf("Budget set: %s / %s = %s\n", m, c, formatCents(limitCents))
+	return nil
+}
+
+func cmdBudgetStatus(args []string) error {
+	fs := flag.NewFlagSet("budget status", flag.ContinueOnError)
+	fs.SetOutput(os.Stdout)
+
+	month := fs.String("month", "", "month in YYYY-MM (required)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	m := strings.TrimSpace(*month)
+	if m == "" {
+		return fmt.Errorf("--month is required (YYYY-MM)")
+	}
+	if _, err := time.Parse("2006-01", m); err != nil {
+		return fmt.Errorf("invalid --month (use YYYY-MM): %w", err)
+	}
+
+	_, err := db.EnsureDir()
+	if err != nil {
+		return err
+	}
+	path, err := db.DBPath()
+	if err != nil {
+		return err
+	}
+
+	conn, err := db.Open(path)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	if err := db.InitSchema(conn); err != nil {
+		return err
+	}
+
+	budgets, err := db.ListBudgets(conn, m)
+	if err != nil {
+		return err
+	}
+
+	if len(budgets) == 0 {
+		fmt.Println("No budgets set for", m)
+		return nil
+	}
+
+	fmt.Println("Budget status for", m)
+	for _, b := range budgets {
+		spent, err := db.SumExpensesForCategoryMonth(conn, m, b.Category)
+		if err != nil {
+			return err
+		}
+
+		remaining := b.LimitCents - spent
+		status := "OK"
+		if remaining < 0 {
+			status = "OVER"
+		}
+
+		fmt.Printf("- %-12s  spent %s / limit %s  remaining %s  [%s]\n",
+			b.Category,
+			formatCents(spent),
+			formatCents(b.LimitCents),
+			formatCents(remaining),
+			status,
+		)
+	}
+
 	return nil
 }

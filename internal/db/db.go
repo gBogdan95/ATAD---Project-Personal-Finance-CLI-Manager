@@ -58,6 +58,16 @@ CREATE TABLE IF NOT EXISTS transactions (
 
 CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);
 CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category);
+
+CREATE TABLE IF NOT EXISTS budgets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  month TEXT NOT NULL,
+  category TEXT NOT NULL,
+  limit_cents INTEGER NOT NULL,
+  UNIQUE(month, category)
+);
+
+CREATE INDEX IF NOT EXISTS idx_budgets_month ON budgets(month);
 `
 	_, err := conn.Exec(schema)
 	if err != nil {
